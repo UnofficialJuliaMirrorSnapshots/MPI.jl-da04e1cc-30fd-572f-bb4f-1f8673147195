@@ -220,22 +220,46 @@ function deserialize(x)
 end
 
 # Administrative functions
+"""
+    Init()
 
+Initialize MPI in the current process.
+
+All MPI programs must contain exactly one call to `MPI.Init()`.
+
+The only MPI functions that may be called before `MPI.Init()` are
+[`MPI.Initialized`](@ref) and [`MPI.Finalized`](@ref).
+"""
 function Init()
     ccall(MPI_INIT, Nothing, (Ref{Cint},), 0)
 end
 
+"""
+    Finalize()
+
+Cleans up all MPI state.
+
+If an MPI program terminates normally (i.e., not due to a call to [`MPI.Abort`](@ref) or an
+unrecoverable error) then each process must call `MPI.Finalize()` before it exits.
+
+See also [`MPI.finalize_atexit`](@ref).
+"""
 function Finalize()
     ccall(MPI_FINALIZE, Nothing, (Ref{Cint},), 0)
 end
 
+"""
+    FINALIZE_ATEXIT[]
+
+Determines whether [`finalize_atexit`](@ref) has been called.
+"""
 const FINALIZE_ATEXIT = Ref(false)
 
 """
     finalize_atexit()
 
-Indicate that MPI.Finalize() should be called automatically at exit, if not called manually already.
-The global variable `FINALIZE_ATEXIT` indicates if this function was called.
+Indicate that [`MPI.Finalize`](@ref) should be called automatically at exit, if not called manually already.
+The global variable [`FINALIZE_ATEXIT`](@ref) indicates if this function was called.
 """
 function finalize_atexit()
     if Sys.iswindows()
@@ -248,17 +272,39 @@ function finalize_atexit()
     FINALIZE_ATEXIT[] = true
 end
 
+"""
+    Abort(comm::Comm, errcode::Integer)
+
+Make a “best attempt” to abort all tasks in the group of `comm`. This function does not
+require that the invoking environment take any action with the error code. However, a Unix
+or POSIX environment should handle this as a return errorcode from the main program.
+"""
 function Abort(comm::Comm, errcode::Integer)
     ccall(MPI_ABORT, Nothing, (Ref{Cint}, Ref{Cint}, Ref{Cint}),
           comm.val, errcode, 0)
 end
 
+"""
+    Initialized()
+
+Returns `true` if [`MPI.Init`](@ref) has been called, `false` otherwise. 
+
+It is unaffected by [`MPI.Finalize`](@ref), and is one of the few functions that may be
+called before [`MPI.Init`](@ref).
+"""
 function Initialized()
     flag = Ref{Cint}()
     ccall(MPI_INITIALIZED, Nothing, (Ptr{Cint}, Ref{Cint}), flag, 0)
     flag[] != 0
 end
 
+"""
+    Finalized()
+
+Returns `true` if [`MPI.Finalize`](@ref) has completed, `false` otherwise. 
+
+It is safe to call before [`MPI.Init`](@ref) and after [`MPI.Finalize`](@ref).
+"""
 function Finalized()
     flag = Ref{Cint}()
     ccall(MPI_FINALIZED, Nothing, (Ptr{Cint}, Ref{Cint}), flag, 0)
@@ -276,6 +322,13 @@ function Comm_free(comm::Comm)
     ccall(MPI_COMM_FREE, Nothing, (Ref{Cint}, Ref{Cint}), comm.val, 0)
 end
 
+"""
+    Comm_rank(comm:Comm)
+
+The rank of the process in the particular communicator’s group. 
+
+Returns an integer in the range `0:MPI.Comm_size()-1`.
+"""
 function Comm_rank(comm::Comm)
     rank = Ref{Cint}()
     ccall(MPI_COMM_RANK, Nothing, (Ref{Cint}, Ptr{Cint}, Ref{Cint}),
@@ -283,6 +336,11 @@ function Comm_rank(comm::Comm)
     Int(rank[])
 end
 
+"""
+    Comm_size(comm:Comm)
+
+The number of processes involved in communicator.
+"""
 function Comm_size(comm::Comm)
     size = Ref{Cint}()
     ccall(MPI_COMM_SIZE, Nothing, (Ref{Cint}, Ptr{Cint}, Ref{Cint}),
@@ -870,11 +928,24 @@ function Cancel!(req::Request)
 end
 
 # Collective communication
+"""
+    Barrier(comm::Comm)
 
+Blocks until `comm` is synchronized.
+
+If `comm` is an intracommunicator, then it blocks until all members of the group have called it.
+
+If `comm` is an intercommunicator, then it blocks until all members of the other group have called it.
+"""
 function Barrier(comm::Comm)
     ccall(MPI_BARRIER, Nothing, (Ref{Cint},Ref{Cint}), comm.val, 0)
 end
 
+"""
+    Bcast!(buf[, count=length(buf)], root, comm::Comm)
+
+Broadcast the first `count` elements of the buffer `buf` from `root` to all processes.
+"""
 function Bcast!(buffer::MPIBuffertype{T}, count::Integer,
                 root::Integer, comm::Comm) where T
     ccall(MPI_BCAST, Nothing,
@@ -919,14 +990,16 @@ function bcast(obj, root::Integer, comm::Comm)
 end
 
 """
-    Reduce!(sendbuf, recvbuf, count, op, root, comm)
+    Reduce!(sendbuf, recvbuf[, count=length(sendbuf)], op, root, comm)
 
 Performs `op` reduction on the first `count` elements of the  buffer `sendbuf`
 and stores the result in `recvbuf` on the process of rank `root`.
 
-On non-root processes recvbuf is ignored.
+On non-root processes `recvbuf` is ignored.
 
-To perform the reduction in place refer to `Reduce_in_place!`
+To perform the reduction in place, see [`Reduce_in_place!`](@ref).
+
+To handle allocation of the output buffer, see [`Reduce`](@ref).
 """
 function Reduce!(sendbuf::MPIBuffertype{T}, recvbuf::MPIBuffertype{T},
                  count::Integer, op::Op, root::Integer,
@@ -947,17 +1020,6 @@ Reduce!(sendbuf::MPIBuffertype{T}, recvbuf::MPIBuffertype{T},
         comm::Comm) where {T} =
     Reduce!(sendbuf, recvbuf, count, user_op(opfunc), root, comm)
 
-
-"""
-    Reduce!(sendbuf, recvbuf, count, op, root, comm)
-
-Performs `op` reduction on the buffer `sendbuf` and stores the result in
-`recvbuf` on the process of rank `root`.
-
-On non-root processes recvbuf is ignored.
-
-To perform the reduction in place refer to `Reduce_in_place!`
-"""
 function Reduce!(sendbuf::MPIBuffertype{T}, recvbuf::MPIBuffertype{T},
                  op::Union{Op, Function}, root::Integer, comm::Comm) where T
     Reduce!(sendbuf, recvbuf, length(sendbuf), op, root, comm)
@@ -967,7 +1029,12 @@ end
     Reduce(sendbuf, count, op, root, comm)
 
 Performs `op` reduction on the buffer `sendbuf` and stores the result in
-an output buffer allocated on the process of rank `root`.
+an output buffer allocated on the process of rank `root`. An empty array
+will be returned on all other processes.
+
+To specify the output buffer, see [`Reduce!`](@ref).
+
+To perform the reduction in place, see [`Reduce_in_place!`](@ref).
 """
 function Reduce(sendbuf::MPIBuffertype{T}, count::Integer,
                 op::Union{Op, Function}, root::Integer, comm::Comm) where T
@@ -1002,13 +1069,17 @@ Performs `op` reduction on the first `count` elements of the buffer `buf` and
 stores the result on `buf` of the `root` process in the group.
 
 This is equivalent to calling
-```
+```julia
 if root == MPI.Comm_rank(comm)
     Reduce!(MPI.IN_PLACE, buf, count, root, comm)
 else
     Reduce!(buf, C_NULL, count, root, comm)
 end
 ```
+
+To handle allocation of the output buffer, see [`Reduce`](@ref).
+
+To specify a separate output buffer, see [`Reduce!`](@ref).
 """
 function Reduce_in_place!(buf::MPIBuffertype{T}, count::Integer,
                           op::Op, root::Integer,
@@ -1036,17 +1107,19 @@ Reduce_in_place!(buf::MPIBuffertype{T}, count::Integer, op::Function,
                     Reduce_in_place!(buf, count, user_op(op), root, comm)
 
 """
-    Allreduce!(sendbuf, recvbuf, count, op, comm)
+    Allreduce!(sendbuf, recvbuf[, count=length(sendbuf)], op, comm)
 
 Performs `op` reduction on the first `count` elements of the buffer
 `sendbuf` storing the result in the `recvbuf` of all processes in the
 group.
 
-All-reduce is equivalent to a Reduce operation followed by a Broadcast, but
-can lead to better performance.
+All-reduce is equivalent to a [`Reduce!`](@ref) operation followed by
+a [`Bcast!`](@ref), but can lead to better performance.
 
 If `sendbuf==MPI.IN_PLACE` the data is read from `recvbuf` and then overwritten
 with the results.
+
+To handle allocation of the output buffer, see [`Allreduce`](@ref).
 """
 function Allreduce!(sendbuf::MPIBuffertypeOrConst{T}, recvbuf::MPIBuffertype{T},
                    count::Integer, op::Op, comm::Comm) where T
@@ -1062,18 +1135,6 @@ Allreduce!(sendbuf::MPIBuffertypeOrConst{T}, recvbuf::MPIBuffertype{T},
            count::Integer, opfunc::Function, comm::Comm) where {T} =
     Allreduce!(sendbuf, recvbuf, count, user_op(opfunc), comm)
 
-"""
-    Allreduce!(sendbuf, recvbuf, op, comm)
-
-Performs `op` reduction on the buffer `sendbuf` storing the result in the
-`recvbuf` of all processes in the group.
-
-All-reduce is equivalent to a Reduce operation followed by a Broadcast, but
-can lead to better performance.
-
-If `sendbuf==MPI.IN_PLACE` the data is read from `recvbuf` and then overwritten
-with the results.
-"""
 function Allreduce!(sendbuf::MPIBuffertypeOrConst{T}, recvbuf::MPIBuffertype{T},
                    op::Union{Op,Function}, comm::Comm) where T
     Allreduce!(sendbuf, recvbuf, length(recvbuf), op, comm)
@@ -1096,6 +1157,8 @@ end
 
 Performs `op` reduction on the buffer `sendbuf`, allocating and returning the
 output buffer in all processes of the group.
+
+To specify the output buffer or perform the operation in pace, see [`Allreduce!`](@ref).
 """
 function Allreduce(sendbuf::MPIBuffertype{T}, op::Union{Op,Function}, comm::Comm) where T
 
@@ -1133,12 +1196,19 @@ Splits the buffer `sendbuf` in the `root` process into `Comm_size(comm)` chunks
 and sends the j-th chunk to the process of rank j into the `recvbuf` buffer,
 which must be of length at least `count`.
 
-To perform the reduction in place refer to `Scatter_in_place!`
+`count` should be the same for all processes. If the number of elements varies between
+processes, use [`Scatter!`](@ref) instead.
+
+To perform the reduction in place, see [`Scatter_in_place!`](@ref).
+
+To handle allocation of the output buffer, see [`Scatter`](@ref).
 """
 function Scatter!(sendbuf::MPIBuffertype{T}, recvbuf::MPIBuffertype{T},
                   count::Integer, root::Integer,
                   comm::Comm) where T
     @assert length(recvbuf) >= count
+    isroot = Comm_rank(comm) == root
+    isroot && @assert length(sendbuf) >= count*Comm_size(comm)
     ccall(MPI_SCATTER, Nothing,
           (Ptr{T}, Ref{Cint}, Ref{Cint}, Ptr{T}, Ref{Cint}, Ref{Cint},
            Ref{Cint}, Ref{Cint}, Ref{Cint}), sendbuf, count, mpitype(T),
@@ -1161,6 +1231,10 @@ else
     Scatter!(C_NULL, buf, count, root, comm)
 end
 ```
+
+To specify a separate output buffer, see [`Scatter!`](@ref).
+
+To handle allocation of the output buffer, see [`Scatter`](@ref).
 """
 function Scatter_in_place!(buf::MPIBuffertype{T},
                   count::Integer, root::Integer,
@@ -1180,7 +1254,7 @@ function Scatter_in_place!(buf::MPIBuffertype{T},
 end
 
 """
-    Scatter(sendbuf, recvbuf, count, root, comm)
+    Scatter(sendbuf, count, root, comm)
 
 Splits the buffer `sendbuf` in the `root` process into `Comm_size(comm)` chunks
 and sends the j-th chunk to the process of rank j, allocating the output buffer.
@@ -1192,13 +1266,13 @@ function Scatter(sendbuf::MPIBuffertype{T}, count::Integer, root::Integer,
 end
 
 """
-    Scatterv!(sendbuf, counts, root, comm)
+    Scatterv!(sendbuf, recvbuf, counts, root, comm)
 
 Splits the buffer `sendbuf` in the `root` process into `Comm_size(comm)` chunks
 of length `counts[j]` and sends the j-th chunk to the process of rank j into the
 `recvbuf` buffer, which must be of length at least `count`.
 
-To perform the reduction in place refer to `Scatterv_in_place!`
+To perform the reduction in place refer to [`Scatterv_in_place!`](@ref).
 """
 function Scatterv!(sendbuf::MPIBuffertype{T}, recvbuf::MPIBuffertype{T},
                   counts::Vector{Cint}, root::Integer, comm::Comm) where T
@@ -1267,10 +1341,14 @@ Each process sends the first `count` elements of the buffer `sendbuf` to the
 `root` process. The `root` process stores elements in rank order in the buffer
 buffer `recvbuf`.
 
-To perform the reduction in place refer to `Gather_in_place!`
+`count` should be the same for all processes. If the number of elements varies between
+processes, use [`Gatherv!`](@ref) instead.
+
+To perform the reduction in place refer to [`Gather_in_place!`](@ref).
 """
 function Gather!(sendbuf::MPIBuffertype{T}, recvbuf::MPIBuffertype{T},
                 count::Integer, root::Integer, comm::Comm) where T
+    @assert length(sendbuf) >= count
     isroot = Comm_rank(comm) == root
     isroot && @assert length(recvbuf) >= count*Comm_size(comm)
     ccall(MPI_GATHER, Nothing,
@@ -1280,7 +1358,7 @@ function Gather!(sendbuf::MPIBuffertype{T}, recvbuf::MPIBuffertype{T},
 end
 
 """
-    Gather(sendbuf, count, root, comm)
+    Gather(sendbuf[, count=length(sendbuf)], root, comm)
 
 Each process sends the first `count` elements of the buffer `sendbuf` to the
 `root` process. The `root` allocates the output buffer and stores elements in
@@ -1341,7 +1419,7 @@ function Gather_in_place!(buf::MPIBuffertype{T}, count::Integer, root::Integer,
 end
 
 """
-  Allgather!(sendbuf, recvbuf, count, comm)
+    Allgather!(sendbuf, recvbuf, count, comm)
 
 Each process sends the first `count` elements of `sendbuf` to the
 other processes, who store the results in rank order into
@@ -1361,7 +1439,7 @@ function Allgather!(sendbuf::MPIBuffertypeOrConst{T}, recvbuf::MPIBuffertype{T},
 end
 
 """
-  Allgather!(buf, count, comm)
+    Allgather!(buf, count, comm)
 
 Equivalent to `Allgather!(MPI.IN_PLACE, buf, count, comm)`.
 """
@@ -1371,7 +1449,7 @@ function Allgather!(buf::MPIBuffertype{T}, count::Integer,
 end
 
 """
-  Allgather(sendbuf, recvbuf, count, comm)
+    Allgather(sendbuf, count, comm)
 
 Each process sends the first `count` elements of `sendbuf` to the
 other processes, who store the results in rank order allocating
@@ -1405,7 +1483,7 @@ Each process sends the first `counts[rank]` elements of the buffer `sendbuf` to
 the `root` process. The `root` stores elements in rank order in the buffer
 `recvbuf`.
 
-To perform the reduction in place refer to `Gatherv_in_place!`
+To perform the reduction in place refer to [`Gatherv_in_place!`](@ref).
 """
 function Gatherv!(sendbuf::MPIBuffertype{T}, recvbuf::MPIBuffertype{T},
                   counts::Vector{Cint}, root::Integer, comm::Comm) where T
@@ -1436,7 +1514,7 @@ end
 """
     Gatherv_in_place!(buf, counts, root, comm)
 
-Each process sends the first `counts[rank]` elements of the buffer `sendbuf` to
+Each process sends the first `counts[rank]` elements of the buffer `buf` to
 the `root` process. The `root` allocates the output buffer and stores elements
 in rank order.
 
@@ -1511,11 +1589,13 @@ length `count`, sending the `j`-th chunk to the `j`-th process.
 Every process stores the data received from the `j`-th process in the `j`-th
 chunk of the buffer `recvbuf`.
 
-`rank    send buf                        recv buf`\\
-`----    --------                        --------`\\
-` 0      a,b,c,d,e,f       Alltoall      a,b,A,B,α,β`\\
-` 1      A,B,C,D,E,F  ---------------->  c,d,C,D,γ,ψ`\\
-` 2      α,β,γ,ψ,η,ν                     e,f,E,F,η,ν`
+```
+rank    send buf                        recv buf
+----    --------                        --------
+ 0      a,b,c,d,e,f       Alltoall      a,b,A,B,α,β
+ 1      A,B,C,D,E,F  ---------------->  c,d,C,D,γ,ψ
+ 2      α,β,γ,ψ,η,ν                     e,f,E,F,η,ν
+```
 
 If `sendbuf==MPI.IN_PLACE`, data is sent from the `recvbuf` and then
 overwritten.
@@ -1536,11 +1616,13 @@ length `count`, sending the `j`-th chunk to the `j`-th process.
 Every process allocates the output buffer and stores the data received from the
 `j`-th process in the `j`-th chunk.
 
-`rank    send buf                        recv buf`\\
-`----    --------                        --------`\\
-` 0      a,b,c,d,e,f       Alltoall      a,b,A,B,α,β`\\
-` 1      A,B,C,D,E,F  ---------------->  c,d,C,D,γ,ψ`\\
-` 2      α,β,γ,ψ,η,ν                     e,f,E,F,η,ν`
+```
+rank    send buf                        recv buf
+----    --------                        --------
+ 0      a,b,c,d,e,f       Alltoall      a,b,A,B,α,β
+ 1      A,B,C,D,E,F  ---------------->  c,d,C,D,γ,ψ
+ 2      α,β,γ,ψ,η,ν                     e,f,E,F,η,ν
+```
 """
 function Alltoall(sendbuf::MPIBuffertype{T}, count::Integer,
                   comm::Comm) where T
@@ -1606,7 +1688,7 @@ function Win_create(base::Array{T}, info::Info, comm::Comm, win::Win) where T
     out_win = Ref(win.val)
     ccall(MPI_WIN_CREATE, Nothing,
           (Ptr{T}, Ref{Cptrdiff_t}, Ref{Cint}, Ref{Cint}, Ref{Cint}, Ref{Cint}, Ref{Cint}),
-          base, Cptrdiff_t(length(base)), sizeof(T), info.val, comm.val, out_win, 0)
+          base, Cptrdiff_t(length(base)*sizeof(T)), sizeof(T), info.val, comm.val, out_win, 0)
     win.val = out_win[]
 end
 
