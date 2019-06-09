@@ -1,19 +1,20 @@
-VERSION < v"0.7.0-beta2.199" && __precompile__()
-
 module MPI
 
-using Compat
+using Libdl, Serialization
 
-using Libdl
-
-@static if Compat.Sys.iswindows()
+@static if Sys.iswindows()
     const depfile = "win_mpiconstants.jl"
 end
 
-@static if Compat.Sys.isunix()
+@static if Sys.isunix()
     const depfile = joinpath(dirname(@__FILE__), "..", "deps", "src", "compile-time.jl")
     isfile(depfile) || error("MPI not properly installed. Please run Pkg.build(\"MPI\")")
 end
+
+macro mpichk(expr)
+    esc(expr)
+end
+
 
 include(depfile)
 
@@ -48,7 +49,7 @@ function recordDataType(T::DataType, mpiT::Cint; force=false)
 end
 
 function __init__()
-    @static if Compat.Sys.isunix()
+    @static if Sys.isunix()
         # need to open libmpi with RTLD_GLOBAL flag for Linux, before
         # any ccall cannot use RTLD_DEEPBIND; this leads to segfaults
         # at least on Ubuntu 15.10

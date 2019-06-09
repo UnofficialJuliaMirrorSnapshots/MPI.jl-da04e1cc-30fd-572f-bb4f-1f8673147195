@@ -1,4 +1,3 @@
-using Compat
 using Test
 using MPI
 
@@ -127,3 +126,4 @@ MPI.free(win)
 MPI.free(address_win)
 
 MPI.Finalize()
+@test MPI.Finalized()

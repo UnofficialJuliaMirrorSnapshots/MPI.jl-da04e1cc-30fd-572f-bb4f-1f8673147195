@@ -1,7 +1,7 @@
 using Test
 
 using MPI
-using Compat.LinearAlgebra
+using LinearAlgebra
 
 MPI.Init()
 
@@ -83,3 +83,4 @@ end
 
 MPI.Barrier( MPI.COMM_WORLD )
 MPI.Finalize()
+@test MPI.Finalized()

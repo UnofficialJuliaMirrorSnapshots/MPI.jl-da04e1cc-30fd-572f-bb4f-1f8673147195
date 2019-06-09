@@ -68,8 +68,13 @@ MPI_constants = [
     # proc
     "MPI_PROC_NULL",
 
+    # memory layout
+    "MPI_ORDER_C",
+    "MPI_ORDER_FORTRAN",
+
     # status
     "MPI_STATUS_SIZE", # size of Status array
+    "MPI_STATUS_IGNORE",
     "MPI_SOURCE", # index in Status array
     "MPI_TAG",    # index in Status array
     "MPI_ERROR",  # index in Status array
@@ -96,6 +101,7 @@ MPI_functions = [
     "MPI_ALLREDUCE",
     "MPI_ALLTOALL",
     "MPI_ALLTOALLV",
+    "MPI_ALLTOALLW",
     "MPI_BARRIER",
     "MPI_BCAST",
     "MPI_BSEND",
@@ -122,6 +128,9 @@ MPI_functions = [
     "MPI_GET_ADDRESS",
     "MPI_GET_COUNT",
     "MPI_GET_PROCESSOR_NAME",
+    "MPI_IALLTOALL",
+    "MPI_IALLTOALLV",
+    "MPI_IALLTOALLW",
     "MPI_INFO_CREATE",
     "MPI_INFO_DELETE",
     "MPI_INFO_FREE",
@@ -159,6 +168,7 @@ MPI_functions = [
     "MPI_TESTSOME",
     "MPI_TYPE_CONTIGUOUS",
     "MPI_TYPE_CREATE_STRUCT",
+    "MPI_TYPE_CREATE_SUBARRAY",
     "MPI_TYPE_COMMIT",
     "MPI_UNPACK",
     "MPI_WAIT",

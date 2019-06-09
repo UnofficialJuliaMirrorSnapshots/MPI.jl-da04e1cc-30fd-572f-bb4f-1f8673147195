@@ -1,5 +1,3 @@
-using Compat
-
 const MPIDatatype = Union{Char,
                             Int8, UInt8, Int16, UInt16, Int32, UInt32, Int64,
                             UInt64,
@@ -152,13 +150,13 @@ const UNDEFINED  = Int(MPI_UNDEFINED)
 
 function serialize(x)
     s = IOBuffer()
-    Compat.Serialization.serialize(s, x)
+    Serialization.serialize(s, x)
     take!(s)
 end
 
 function deserialize(x)
     s = IOBuffer(x)
-    Compat.Serialization.deserialize(s)
+    Serialization.deserialize(s)
 end
 
 const REFCOUNT = Threads.Atomic{Int}(1)
@@ -208,6 +206,9 @@ function Init()
     end
     ccall(MPI_INIT, Nothing, (Ref{Cint},), 0)
     atexit(refcount_dec)
+
+    # initialise constants
+    INFO_NULL.cinfo = CInfo(MPI_INFO_NULL)
 end
 
 """
@@ -483,6 +484,21 @@ function Get_count(stat::Status, ::Type{T}) where T
 end
 
 """
+    Send(buf::MPIBuffertype{T}, count::Integer, datatype::Cint, dest::Integer, 
+        tag::Integer, comm::Comm) where T
+
+Complete a blocking send of `count` elements of type `datatype` from `buf` to MPI 
+rank `dest` of communicator `comm` using the message tag `tag`
+"""
+function Send(buf::MPIBuffertype{T}, count::Integer, datatype::Cint, dest::Integer,
+              tag::Integer, comm::Comm) where T
+    ccall(MPI_SEND, Nothing,
+          (Ptr{T}, Ref{Cint}, Ref{Cint}, Ref{Cint}, Ref{Cint}, Ref{Cint},
+           Ref{Cint}),
+          buf, count, datatype, dest, tag, comm.val, 0)
+end
+
+"""
     Send(buf::MPIBuffertype{T}, count::Integer, dest::Integer, tag::Integer,
          comm::Comm) where T
 
@@ -491,10 +507,7 @@ of communicator `comm` using with the message tag `tag`
 """
 function Send(buf::MPIBuffertype{T}, count::Integer, dest::Integer,
               tag::Integer, comm::Comm) where T
-    ccall(MPI_SEND, Nothing,
-          (Ptr{T}, Ref{Cint}, Ref{Cint}, Ref{Cint}, Ref{Cint}, Ref{Cint},
-           Ref{Cint}),
-          buf, count, mpitype(T), dest, tag, comm.val, 0)
+    Send(buf, count, mpitype(T), dest, tag, comm)
 end
 
 """
@@ -521,7 +534,7 @@ end
 """
     Send(obj::T, dest::Integer, tag::Integer, comm::Comm) where T
 
-Complete s blocking send of `obj` to MPI rank `dest` of communicator `comm`
+Complete a blocking send of `obj` to MPI rank `dest` of communicator `comm`
 using with the message tag `tag`.
 """
 function Send(obj::T, dest::Integer, tag::Integer, comm::Comm) where T
@@ -541,6 +554,25 @@ function send(obj, dest::Integer, tag::Integer, comm::Comm)
 end
 
 """
+    Isend(buf::MPIBuffertype{T}, count::Integer, datatype::Cint, dest::Integer, 
+          tag::Integer, comm::Comm) where T
+
+Starts a nonblocking send of `count` elements of type `datatype` from `buf` to 
+MPI rank `dest` of communicator `comm` using with the message tag `tag`
+
+Returns the commication `Request` for the nonblocking send.
+"""
+function Isend(buf::MPIBuffertype{T}, count::Integer, datatype::Cint,
+               dest::Integer, tag::Integer, comm::Comm) where T
+    rval = Ref{Cint}()
+    ccall(MPI_ISEND, Nothing,
+          (Ptr{T}, Ref{Cint}, Ref{Cint}, Ref{Cint}, Ref{Cint}, Ref{Cint},
+           Ptr{Cint}, Ref{Cint}),
+          buf, count, datatype, dest, tag, comm.val, rval, 0)
+    return Request(rval[], buf)
+end
+
+"""
     Isend(buf::MPIBuffertype{T}, count::Integer, dest::Integer, tag::Integer,
           comm::Comm) where T
 
@@ -551,12 +583,7 @@ Returns the commication `Request` for the nonblocking send.
 """
 function Isend(buf::MPIBuffertype{T}, count::Integer,
                dest::Integer, tag::Integer, comm::Comm) where T
-    rval = Ref{Cint}()
-    ccall(MPI_ISEND, Nothing,
-          (Ptr{T}, Ref{Cint}, Ref{Cint}, Ref{Cint}, Ref{Cint}, Ref{Cint},
-           Ptr{Cint}, Ref{Cint}),
-          buf, count, mpitype(T), dest, tag, comm.val, rval, 0)
-    Request(rval[], buf)
+    Isend(buf, count, mpitype(T), dest, tag, comm)
 end
 
 """
@@ -612,6 +639,25 @@ function isend(obj, dest::Integer, tag::Integer, comm::Comm)
 end
 
 """
+    Recv!(buf::MPIBuffertype{T}, count::Integer, datatype::Cint, src::Integer, 
+          tag::Integer, comm::Comm) where T
+
+Completes a blocking receive of up to `count` elements of type `datatype` into `buf` 
+from MPI rank `src` of communicator `comm` using with the message tag `tag`
+
+Returns the `Status` of the receive
+"""
+function Recv!(buf::MPIBuffertype{T}, count::Integer, datatype::Cint, src::Integer,
+               tag::Integer, comm::Comm) where T
+    stat = Status()
+    ccall(MPI_RECV, Nothing,
+          (Ptr{T}, Ref{Cint}, Ref{Cint}, Ref{Cint}, Ref{Cint}, Ref{Cint},
+           Ptr{Cint}, Ref{Cint}),
+          buf, count, datatype, src, tag, comm.val, stat.val, 0)
+    return stat
+end
+
+"""
     Recv!(buf::MPIBuffertype{T}, count::Integer, src::Integer, tag::Integer,
           comm::Comm) where T
 
@@ -622,12 +668,7 @@ Returns the `Status` of the receive
 """
 function Recv!(buf::MPIBuffertype{T}, count::Integer, src::Integer,
                tag::Integer, comm::Comm) where T
-    stat = Status()
-    ccall(MPI_RECV, Nothing,
-          (Ptr{T}, Ref{Cint}, Ref{Cint}, Ref{Cint}, Ref{Cint}, Ref{Cint},
-           Ptr{Cint}, Ref{Cint}),
-          buf, count, mpitype(T), src, tag, comm.val, stat.val, 0)
-    stat
+    Recv!(buf, count, mpitype(T), src, tag, comm)
 end
 
 
@@ -672,22 +713,36 @@ function recv(src::Integer, tag::Integer, comm::Comm)
 end
 
 """
-    Irecv!(buf::MPIBuffertype{T}, count::Integer, src::Integer, tag::Integer,
+    Irecv!(buf::MPIBuffertype{T}, count::Integer, datatype::Cint, src::Integer, tag::Integer,
            comm::Comm) where T
 
-Starts a nonblocking receive of up to `count` elements into `buf` from MPI rank
-`src` of communicator `comm` using with the message tag `tag`
+Starts a nonblocking receive of up to `count` elements of type `datatype` into `buf` 
+from MPI rank `src` of communicator `comm` using with the message tag `tag`
 
 Returns the communication `Request` for the nonblocking receive.
 """
-function Irecv!(buf::MPIBuffertype{T}, count::Integer,
-                             src::Integer, tag::Integer, comm::Comm) where T
+function Irecv!(buf::MPIBuffertype{T}, count::Integer, datatype::Cint,
+                    src::Integer, tag::Integer, comm::Comm) where T
     val = Ref{Cint}()
     ccall(MPI_IRECV, Nothing,
           (Ptr{T}, Ref{Cint}, Ref{Cint}, Ref{Cint}, Ref{Cint}, Ref{Cint},
            Ptr{Cint}, Ref{Cint}),
-          buf, count, mpitype(T), src, tag, comm.val, val, 0)
+          buf, count, datatype, src, tag, comm.val, val, 0)
     Request(val[], buf)
+end
+
+"""
+    Irecv!(buf::MPIBuffertype{T}, count::Integer, src::Integer, tag::Integer,
+           comm::Comm) where T
+
+Starts a nonblocking receive of up to `count` elements into `buf` 
+from MPI rank `src` of communicator `comm` using with the message tag `tag`
+
+Returns the communication `Request` for the nonblocking receive.
+"""
+function Irecv!(buf::MPIBuffertype{T}, count::Integer,
+                    src::Integer, tag::Integer, comm::Comm) where T
+    Irecv!(buf, count, mpitype(T), src, tag, comm)
 end
 
 """
@@ -1676,11 +1731,11 @@ function Comm_get_parent()
 end
 
 function Comm_spawn(command::String, argv::Vector{String}, nprocs::Integer,
-                    comm::Comm, errors = Vector{Cint}(undef, nprocs))
+                    comm::Comm, errors = Vector{Cint}(undef, nprocs); kwargs...)
     c_intercomm = Ref{CComm}()
     ccall((:MPI_Comm_spawn, libmpi), Nothing,
          (Cstring, Ptr{Ptr{Cchar}}, Cint, CInfo, Cint, CComm, Ref{CComm}, Ptr{Cint}),
-         command, argv, nprocs, CInfo(INFO_NULL), 0, CComm(comm), c_intercomm, errors)
+         command, argv, nprocs, Info(kwargs...), 0, CComm(comm), c_intercomm, errors)
     return Comm(c_intercomm[])
 end
 
@@ -1705,6 +1760,41 @@ function Type_Create_Struct(nfields::Integer, blocklengths::MPIBuffertype{Cint},
   end
 
   return newtype_ref[]
+end
+
+"""
+    Type_Create_Subarray(ndims::Integer, array_of_sizes::MPIBuffertype{Cint},
+                         array_of_subsizes::MPIBuffertype{Cint},
+                         array_of_starts::MPIBuffertype{Cint}, order::Integer, oldtype)
+
+Creates a data type describing an `ndims`-dimensional subarray of size `array_of_subsizes`
+of an `ndims-dimensional` array of size `array_of_sizes` and element type `oldtype`,
+starting at the top-left location `array_of_starts`. The parameter `order` refers to
+the memory layout of the parent array, and can be either `MPI_ORDER_C` or
+`MPI_ORDER_FORTRAN`. Note that, like other MPI data types, the type returned by this
+function should be committed with `MPI_Type_commit`.
+"""
+function Type_Create_Subarray(ndims::Integer,
+                              array_of_sizes::MPIBuffertype{Cint},
+                              array_of_subsizes::MPIBuffertype{Cint},
+                              array_of_starts::MPIBuffertype{Cint},
+                              order::Integer,
+                              oldtype)
+
+    newtype_ref = Ref{Cint}()
+    flag = Ref{Cint}()
+
+    ccall(MPI_TYPE_CREATE_SUBARRAY, Nothing,
+        (Ref{Cint}, Ptr{Cint}, Ptr{Cint}, Ptr{Cint},
+         Ref{Cint}, Ref{Cint}, Ptr{Cint}, Ptr{Cint}),
+        ndims, array_of_sizes, array_of_subsizes, array_of_starts,
+        order, mpitype(oldtype), newtype_ref, flag)
+
+    if flag[] != 0
+        throw(ErrorException("MPI_Type_create_subarray returned non-zero exit status"))
+    end
+
+    return newtype_ref[]
 end
 
 function Type_Contiguous(count::Integer, oldtype)
@@ -1742,13 +1832,6 @@ if HAVE_MPI_COMM_C2F
     function Comm(ccomm::CComm)
       Comm(ccall((:MPI_Comm_c2f, libmpi), Cint, (CComm,), ccomm))
     end
-    # Assume info is treated the same way
-    function CInfo(info::Info)
-      ccall((:MPI_Info_f2c, libmpi), CInfo, (Cint,), info.val)
-    end
-    function Info(cinfo::CInfo)
-      Info(ccall((:MPI_Info_c2f, libmpi), Cint, (CInfo,), cinfo))
-    end
 elseif sizeof(CComm) == sizeof(Cint)
     # in MPICH, both C and Fortran use identical Cint comm handles
     # and MPI_Comm_c2f is not provided.
@@ -1757,12 +1840,6 @@ elseif sizeof(CComm) == sizeof(Cint)
     end
     function Comm(ccomm::CComm)
       Comm(reinterpret(Cint, ccomm))
-    end
-    function CInfo(info::Info)
-      reinterpret(CInfo, info.val)
-    end
-    function Info(cinfo::CInfo)
-      Info(reinterpret(Cint, cinfo))
     end
 else
     @warn("No MPI_Comm_c2f found - conversion to/from MPI.CComm will not work")
